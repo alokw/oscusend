@@ -1,17 +1,34 @@
 #!/usr/bin/env python3
 """
 OSCSend - Global hotkey to OSC message converter for macOS
+
+Usage:
+  python src/oscusend.py -hotkey cmd+f15 -dest1 10.10.20.101:5000 -dest2 10.10.20.102:5000 -oscpath /millumin/action/launchNextColumn -oscval next
 """
 
-import os
-import sys
+import argparse
 import logging
+import sys
 import time
 from dataclasses import dataclass
 
 from pynput import keyboard
 from pythonosc import udp_client
-from dotenv import load_dotenv
+
+# =============================================================================
+# DEFAULTS - Modify these to change default behavior
+# =============================================================================
+
+DEFAULT_HOTKEY = 'cmd+f15'
+DEFAULT_DEST1_IP = '10.10.20.101'
+DEFAULT_DEST1_PORT = 5000
+DEFAULT_DEST2_IP = '10.10.20.102'
+DEFAULT_DEST2_PORT = 5000
+DEFAULT_OSC_PATH = '/millumin/action/launchNextColumn'
+DEFAULT_OSC_VALUE = 'next'
+DEFAULT_TRIGGER_COOLDOWN = 0.2  # seconds (prevents duplicate triggers)
+
+# =============================================================================
 
 # Configure logging
 logging.basicConfig(
@@ -33,41 +50,45 @@ class OSCDestination:
 class OSCSendApp:
     """Main application class"""
 
-    def __init__(self):
+    def __init__(self, args=None):
         self.osc_clients = []  # List of (client, destination) tuples
         self.last_trigger_time = 0
-        self.trigger_cooldown = 0.2  # Prevent duplicate triggers (seconds)
+        self.trigger_cooldown = DEFAULT_TRIGGER_COOLDOWN
         self.hotkey_listener = None
 
-        load_dotenv()
-        self.config = self._load_config()
+        self.config = self._load_config(args)
         self._setup_osc_clients()
 
-    def _load_config(self) -> dict:
-        """Load configuration from environment variables"""
+    def _load_config(self, args) -> dict:
+        """Load configuration from args or defaults"""
         config = {}
 
-        # Parse hotkey: format should be "cmd+f15" or "cmd+shift+f1"
-        hotkey_str = os.getenv('HOTKEY', 'cmd+f15').lower()
+        if args.dest1:
+            # Use provided arguments
+            hotkey_str = args.hotkey.lower()
+            config['dest1'] = self._parse_destination(args.dest1, args.oscpath, args.oscval)
+            config['dest2'] = self._parse_destination(args.dest2, args.oscpath, args.oscval) if args.dest2 else None
+        else:
+            # Use defaults when run without arguments
+            logger.info("No arguments provided. Using default configuration.")
+            logger.info("Run with --help for usage options.")
+            hotkey_str = DEFAULT_HOTKEY
+            config['dest1'] = OSCDestination(ip=DEFAULT_DEST1_IP, port=DEFAULT_DEST1_PORT, path=DEFAULT_OSC_PATH, value=DEFAULT_OSC_VALUE)
+            config['dest2'] = None
+            if DEFAULT_DEST2_IP:
+                config['dest2'] = OSCDestination(ip=DEFAULT_DEST2_IP, port=DEFAULT_DEST2_PORT, path=DEFAULT_OSC_PATH, value=DEFAULT_OSC_VALUE)
+
         config['hotkey'] = self._parse_hotkey(hotkey_str)
-
-        # OSC Destination 1
-        config['dest1'] = OSCDestination(
-            ip=os.getenv('OSC_DEST1_IP', '127.0.0.1'),
-            port=int(os.getenv('OSC_DEST1_PORT', '8000')),
-            path=os.getenv('OSC_DEST1_PATH', '/trigger'),
-            value=os.getenv('OSC_DEST1_VALUE', 'activate')
-        )
-
-        # OSC Destination 2
-        config['dest2'] = OSCDestination(
-            ip=os.getenv('OSC_DEST2_IP', '127.0.0.1'),
-            port=int(os.getenv('OSC_DEST2_PORT', '8001')),
-            path=os.getenv('OSC_DEST2_PATH', '/trigger'),
-            value=os.getenv('OSC_DEST2_VALUE', 'activate')
-        )
-
         return config
+
+    def _parse_destination(self, dest_str, oscpath, oscval):
+        """Parse destination string 'ip:port' and combine with shared OSC path/value"""
+        if ':' in dest_str:
+            ip, port = dest_str.split(':', 1)
+        else:
+            ip = dest_str
+            port = 8000
+        return OSCDestination(ip=ip, port=int(port), path=oscpath, value=oscval)
 
     def _parse_hotkey(self, hotkey_str: str) -> dict:
         """Parse hotkey string into pynput format"""
@@ -110,10 +131,14 @@ class OSCSendApp:
 
     def _setup_osc_clients(self):
         """Setup OSC UDP clients for each destination"""
-        for dest in [self.config['dest1'], self.config['dest2']]:
+        dests = [self.config['dest1']]
+        if self.config['dest2']:
+            dests.append(self.config['dest2'])
+
+        for dest in dests:
             client = udp_client.SimpleUDPClient(dest.ip, dest.port)
             self.osc_clients.append((client, dest))
-            logger.info(f"OSC destination configured: {dest.ip}:{dest.port}{dest.path}")
+            logger.info(f"OSC destination configured: {dest.ip}:{dest.port} → {dest.path}")
 
     def _send_osc_messages(self):
         """Send OSC messages to all configured destinations"""
@@ -128,7 +153,7 @@ class OSCSendApp:
         for client, dest in self.osc_clients:
             try:
                 client.send_message(dest.path, dest.value)
-                logger.info(f"OSC sent: {dest.ip}:{dest.port}{dest.path} = '{dest.value}'")
+                logger.info(f"OSC sent: {dest.ip}:{dest.port} → {dest.path} = '{dest.value}'")
             except Exception as e:
                 logger.error(f"Failed to send OSC to {dest.ip}:{dest.port}: {e}")
 
@@ -159,9 +184,40 @@ class OSCSendApp:
                 self.hotkey_listener.stop()
 
 
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Send OSC messages via global hotkey',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s -hotkey cmd+f15 -dest1 10.10.20.101:5000 -dest2 10.10.20.102:5000 -oscpath /millumin/action/launchNextColumn -oscval next
+  %(prog)s -hotkey ctrl+shift+a -dest1 127.0.0.1:8000
+        """
+    )
+
+    parser.add_argument('-hotkey', default=DEFAULT_HOTKEY,
+                        help=f'Hotkey combination (e.g., cmd+f15, ctrl+shift+a). Default: {DEFAULT_HOTKEY}')
+    parser.add_argument('-dest1', default=None,
+                        help='First OSC destination as IP:PORT (e.g., 10.10.20.101:5000)')
+    parser.add_argument('-dest2', default=None,
+                        help='Second OSC destination as IP:PORT (optional)')
+    parser.add_argument('-oscpath', default=DEFAULT_OSC_PATH,
+                        help=f'OSC path to send to (e.g., /millumin/action/launchNextColumn). Default: {DEFAULT_OSC_PATH}')
+    parser.add_argument('-oscval', default=DEFAULT_OSC_VALUE,
+                        help=f'OSC value to send (string). Default: {DEFAULT_OSC_VALUE}')
+
+    return parser.parse_args()
+
+
 def main():
     """Main entry point"""
-    app = OSCSendApp()
+    try:
+        args = parse_args()
+    except SystemExit:
+        # argparse calls sys.exit on --help, re-raise to exit cleanly
+        raise
+    app = OSCSendApp(args)
     app.start()
 
 

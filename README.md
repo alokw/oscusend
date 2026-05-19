@@ -6,7 +6,7 @@ A simple macOS application that listens for a global hotkey and sends OSC messag
 
 - Global hotkey monitoring (works when app is in background)
 - Sends OSC messages to two configurable destinations
-- Simple `.env` file configuration
+- Command-line interface (works consistently between script and .app)
 - Runs as background agent (no dock icon when bundled as .app)
 - Console logging for debugging
 
@@ -30,63 +30,93 @@ cd oscusend
 pip install -r requirements.txt
 ```
 
-3. Copy the example environment file and configure:
+3. Run with command-line arguments:
 ```bash
-cp .env.example .env
-```
-
-4. Edit `.env` with your settings (see [Configuration](#configuration)).
-
-5. Run the app:
-```bash
-python src/oscusend.py
+python src/oscusend.py -hotkey cmd+f15 -dest1 10.10.20.101:5000 -dest2 10.10.20.102:5000 -oscpath /millumin/action/launchNextColumn -oscval next
 ```
 
 ### Option 2: Bundle as macOS .app
 
-1. Install py2app:
+1. Install PyInstaller:
 ```bash
-pip install py2app
+pip install pyinstaller
 ```
 
-2. Build the app bundle:
+2. Build the app:
 ```bash
-python setup.py py2app
+pyinstaller --onefile --name OSCUsend src/oscusend.py
 ```
 
-3. The .app bundle will be created in `dist/OSCUsend.app`
-
-4. Copy your `.env` file to the app bundle:
+3. Move to Applications folder:
 ```bash
-cp .env dist/OSCUsend.app/Contents/MacOS/.env
+mv dist/OSCUsend /Applications/
 ```
 
-5. Move to Applications folder:
+4. Grant permissions (see [macOS Privacy & Security](#macos-privacy--security-settings) below)
+
+5. Run it:
 ```bash
-mv dist/OSCUsend.app /Applications/
+# Double-click in Applications, or from terminal:
+/Applications/OSCUsend -hotkey cmd+f15 -dest1 10.10.20.101:5000 -dest2 10.10.20.102:5000 -oscpath /millumin/action/launchNextColumn -oscval next
+```
+
+**Optional: Create distributable DMG**
+```bash
+./build_dmg.sh
+```
+
+**Optional: Install convenience wrapper** (lets you run `oscusend` from anywhere):
+```bash
+sudo cp oscusend /usr/local/bin/
+```
+
+Then use:
+```bash
+oscusend -hotkey cmd+f15 -dest1 10.10.20.101:5000 -dest2 10.10.20.102:5000 -oscpath /millumin/action/launchNextColumn -oscval next
 ```
 
 ## Configuration
 
-Edit the `.env` file to configure your settings:
+All configuration is done via command-line arguments (same for both script and .app):
 
 ```bash
-# Hotkey to trigger OSC messages
-# Format: modifier+key
-# Modifiers: cmd, ctrl, shift, option/alt
-HOTKEY=cmd+f15
+python src/oscusend.py [OPTIONS]
+# or
+/Applications/OSCUsend.app/Contents/MacOS/OSCUsend [OPTIONS]
+```
 
-# OSC Destination 1
-OSC_DEST1_IP=127.0.0.1
-OSC_DEST1_PORT=8000
-OSC_DEST1_PATH=/trigger
-OSC_DEST1_VALUE=activate
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `-hotkey` | No | `cmd+f15` | Hotkey combination (e.g., `cmd+f15`, `ctrl+shift+a`) |
+| `-dest1` | No | `10.10.20.101:5000` | First OSC destination as `IP:PORT` |
+| `-dest2` | No | `10.10.20.102:5000` | Second OSC destination as `IP:PORT` |
+| `-oscpath` | No | `/millumin/action/launchNextColumn` | OSC path to send to |
+| `-oscval` | No | `next` | OSC value to send (string) |
 
-# OSC Destination 2
-OSC_DEST2_IP=127.0.0.1
-OSC_DEST2_PORT=8001
-OSC_DEST2_PATH=/trigger
-OSC_DEST2_VALUE=activate
+**All arguments are optional** - run without any arguments to use defaults.
+
+### Default Configuration
+
+If run without arguments, the app uses these defaults:
+- Hotkey: `cmd+f15`
+- Destination 1: `10.10.20.101:5000` → `/millumin/action/launchNextColumn` with value `next`
+- Destination 2: `10.10.20.102:5000` → `/millumin/action/launchNextColumn` with value `next`
+
+**To change defaults**, edit the variables at the top of `src/oscusend.py`:
+
+```python
+# =============================================================================
+# DEFAULTS - Modify these to change default behavior
+# =============================================================================
+
+DEFAULT_HOTKEY = 'cmd+f15'
+DEFAULT_DEST1_IP = '10.10.20.101'
+DEFAULT_DEST1_PORT = 5000
+DEFAULT_DEST2_IP = '10.10.20.102'
+DEFAULT_DEST2_PORT = 5000
+DEFAULT_OSC_PATH = '/millumin/action/launchNextColumn'
+DEFAULT_OSC_VALUE = 'next'
+DEFAULT_TRIGGER_COOLDOWN = 0.2  # seconds
 ```
 
 ### Hotkey Examples
@@ -123,7 +153,7 @@ Some macOS versions may also require Input Monitoring permission.
 
 ### Which App to Add?
 
-- **Running as script (`python src/oscusend.py`)**: Add **Terminal** from `/Applications/Utilities/`
+- **Running as script**: Add **Terminal** from `/Applications/Utilities/`
 - **Running as .app bundle**: Add **OSCUsend** from your Applications folder
 
 ### Troubleshooting
@@ -145,14 +175,14 @@ Once running, OSCUsend will:
 
 Example console output:
 ```
-2025-01-18 10:30:00 - OSCUSend - INFO - OSC destination configured: 127.0.0.1:8000/trigger
-2025-01-18 10:30:00 - OSCUSend - INFO - OSC destination configured: 127.0.0.1:8001/trigger
-2025-01-18 10:30:00 - OSCUSend - INFO - Starting OSCSend...
-2025-01-18 10:30:00 - OSCUSend - INFO - Listening for hotkey: cmd+f15
-2025-01-18 10:30:00 - OSCUSend - INFO - Press Ctrl+C to quit
-2025-01-18 10:30:15 - OSCUSend - INFO - Hotkey 'cmd+f15' pressed
-2025-01-18 10:30:15 - OSCUSend - INFO - OSC sent: 127.0.0.1:8000/trigger = 'activate'
-2025-01-18 10:30:15 - OSCUSend - INFO - OSC sent: 127.0.0.1:8001/trigger = 'activate'
+2026-05-18 10:30:00 - OSCUSend - INFO - OSC destination configured: 10.10.20.101:5000 → /millumin/action/launchNextColumn
+2026-05-18 10:30:00 - OSCUSend - INFO - OSC destination configured: 10.10.20.102:5000 → /millumin/action/launchNextColumn
+2026-05-18 10:30:00 - OSCUSend - INFO - Starting OSCSend...
+2026-05-18 10:30:00 - OSCUSend - INFO - Listening for hotkey: cmd+f15
+2026-05-18 10:30:00 - OSCUSend - INFO - Press Ctrl+C to quit
+2026-05-18 10:30:15 - OSCUSend - INFO - Hotkey 'cmd+f15' pressed
+2026-05-18 10:30:15 - OSCUSend - INFO - OSC sent: 10.10.20.101:5000 → /millumin/action/launchNextColumn = 'next'
+2026-05-18 10:30:15 - OSCUSend - INFO - OSC sent: 10.10.20.102:5000 → /millumin/action/launchNextColumn = 'next'
 ```
 
 ## Testing OSC Reception
@@ -163,7 +193,7 @@ To test that OSC messages are being sent correctly, you can use an OSC debugger 
 - Simple Python listener:
 ```python
 from pythonosc import dispatcher, osc_server
-# Run on port 8000 to receive test messages
+# Run on port matching your destination
 ```
 
 ## License

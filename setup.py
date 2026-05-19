@@ -6,10 +6,10 @@ Usage: python setup.py py2app
 from setuptools import setup
 
 APP = ['src/oscusend.py']
-DATA_FILES = ['.env']
+DATA_FILES = []
 OPTIONS = {
     'argv_emulation': False,
-    'iconfile': None,  # Add path to .icns file if you have one
+    'iconfile': None,
     'plist': {
         'CFBundleName': 'OSCUsend',
         'CFBundleDisplayName': 'OSCUsend',
@@ -18,9 +18,9 @@ OPTIONS = {
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
         'NSAppleScriptEnabled': False,
-        'LSBackgroundOnly': True,  # Run in background (no dock icon)
+        'LSBackgroundOnly': True,
     },
-    'packages': ['pynput', 'pythonosc', 'dotenv'],
+    'packages': ['pynput', 'pythonosc'],
 }
 
 setup(
@@ -32,6 +32,5 @@ setup(
     install_requires=[
         'pynput>=1.7.6',
         'python-osc>=1.8.0',
-        'python-dotenv>=1.0.0',
     ],
 )
